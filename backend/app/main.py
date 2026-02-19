@@ -58,6 +58,44 @@ Output STRICT JSON in exactly this schema:
 }
 """.strip()
 
+IMPROVE_SYSTEM_PROMPT = """
+You are an interview question engineer.
+
+Your job:
+- detect whether a question is generic (too abstract / not verifiable)
+- explain why it is weak
+- rewrite it into a STAR-based, role-specific, verifiable question
+- generate 3 follow-up questions:
+  1) trade-off / constraints
+  2) metrics / measurable impact
+  3) personal contribution / ownership
+
+Rules:
+- be practical and specific
+- avoid protected traits
+- output STRICT JSON only (no markdown)
+""".strip()
+
+IMPROVE_USER_PROMPT_TEMPLATE = """
+Role:
+{ROLE}
+
+Question:
+{QUESTION}
+
+Return STRICT JSON in this schema:
+{
+  "is_generic": boolean,
+  "issues": string[],
+  "improved_question": string,
+  "followups": string[]
+}
+
+Important:
+- If NOT generic, return is_generic=false and keep improved_question empty and followups empty.
+- If generic, issues must have 2~4 items, followups must have exactly 3 items.
+""".strip()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -83,6 +121,23 @@ def extract_text_from_upload(file: UploadFile) -> str:
     return "\n".join(pages).strip()
 
 
+def sanitize_json_text(raw_text: str) -> str:
+    text = raw_text.strip()
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    first = lines[0].strip().lower()
+    if first in ("```json", "```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
 def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeResumeResponse:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -96,22 +151,6 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
         .replace("{RESUME_TEXT}", resume_text[:12000])
         .strip()
     )
-
-    def sanitize_json_text(raw_text: str) -> str:
-        text = raw_text.strip()
-        if not text.startswith("```"):
-            return text
-
-        lines = text.splitlines()
-        if not lines:
-            return text
-
-        first = lines[0].strip().lower()
-        if first in ("```json", "```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
 
     def request_content(user_prompt: str) -> str:
         completion = client.chat.completions.create(
@@ -153,60 +192,74 @@ def generate_question_improvement(question: str, job_description: str | None) ->
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     client = OpenAI(api_key=api_key)
 
-    prompt = f"""
-You are REDLINE, an interview question verification engine.
-Return strict JSON only. No markdown.
+    role_text = (job_description or "").strip()[:5000] or "N/A"
+    prompt = (
+        IMPROVE_USER_PROMPT_TEMPLATE.replace("{ROLE}", role_text)
+        .replace("{QUESTION}", question[:3000])
+        .strip()
+    )
 
-Task:
-1) Judge whether the input question is generic/abstract.
-2) If generic, explain concrete issues.
-3) Rewrite it into a STAR-based, verifiable question.
-4) Generate exactly 3 follow-up questions:
-   - trade_off
-   - metrics
-   - personal_contribution
-
-Output schema (keys must match exactly):
-{{
-  "is_generic": boolean,
-  "issues": [string],
-  "improved_question": string,
-  "follow_ups": {{
-    "trade_off": string,
-    "metrics": string,
-    "personal_contribution": string
-  }}
-}}
-
-Rules:
-- Keep questions concrete and evidence-oriented.
-- If the original question is already specific, set is_generic=false and keep issues concise.
-- improved_question must still be better than original for verification.
-
-Job Description (optional):
-{(job_description or "").strip()[:5000]}
-
-Original Interview Question:
-{question[:3000]}
-""".strip()
-
-    try:
+    def request_content(user_prompt: str) -> str:
         completion = client.chat.completions.create(
             model=model,
             temperature=0.2,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "You produce strict JSON responses only."},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": IMPROVE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
             ],
         )
-        content = completion.choices[0].message.content or "{}"
-        parsed = json.loads(content)
-        return ImproveQuestionResponse.model_validate(parsed)
+        return completion.choices[0].message.content or "{}"
+
+    def normalize_response(parsed: dict) -> ImproveQuestionResponse:
+        is_generic = bool(parsed.get("is_generic", False))
+        issues = parsed.get("issues") if isinstance(parsed.get("issues"), list) else []
+        issues = [str(item) for item in issues]
+
+        improved_question = str(parsed.get("improved_question", ""))
+        if not is_generic:
+            improved_question = ""
+
+        followups = parsed.get("followups") if isinstance(parsed.get("followups"), list) else []
+        followups = [str(item) for item in followups]
+        if len(followups) < 3:
+            followups = followups + [""] * (3 - len(followups))
+        elif len(followups) > 3:
+            followups = followups[:3]
+
+        if not is_generic:
+            followups = ["", "", ""]
+
+        normalized = {
+            "is_generic": is_generic,
+            "issues": issues,
+            "improved_question": improved_question,
+            "follow_ups": {
+                "trade_off": followups[0],
+                "metrics": followups[1],
+                "personal_contribution": followups[2],
+            },
+        }
+        return ImproveQuestionResponse.model_validate(normalized)
+
+    try:
+        primary_content = request_content(prompt)
+        primary_clean = sanitize_json_text(primary_content)
+        parsed = json.loads(primary_clean)
+        return normalize_response(parsed)
+    except json.JSONDecodeError:
+        retry_prompt = f"{prompt}\n\nJSON ONLY, no markdown, no extra text."
+        try:
+            retry_content = request_content(retry_prompt)
+            retry_clean = sanitize_json_text(retry_content)
+            retry_parsed = json.loads(retry_clean)
+            return normalize_response(retry_parsed)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"JSON parsing retry failed: {exc}") from exc
     except ValidationError as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid model response schema: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Invalid model response schema: {exc}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {exc}") from exc
 
 
 @app.get("/health")
