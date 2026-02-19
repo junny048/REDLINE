@@ -13,7 +13,7 @@
 
 ## API Contracts
 - `POST /api/analyze-resume` (`multipart/form-data`)
-  - request: `file` (required, PDF/TXT), `job_description`
+  - request: `file` (required, PDF/TXT), `job_description`, `language` (`ko|en`, optional, default: `ko`)
   - response: `key_risks[]`, `pressure_questions[]`
 - `POST /api/improve-question` (`application/json`)
   - request: `question`, `job_description?`

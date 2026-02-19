@@ -106,6 +106,7 @@ export default function HomePage() {
     try {
       const formData = new FormData();
       formData.append("job_description", jobDescription);
+      formData.append("language", lang);
       if (file) {
         formData.append("file", file);
       }

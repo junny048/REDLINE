@@ -44,6 +44,9 @@ Job Role / JD:
 Candidate Statement:
 {RESUME_TEXT}
 
+Output language:
+{OUTPUT_LANGUAGE}
+
 Task:
 Identify verification risks and generate aggressive but professional interview questions.
 
@@ -56,6 +59,9 @@ Output STRICT JSON in exactly this schema:
     {"question":"...","goal":"..."}
   ]
 }
+Language rule:
+- Write `analysis`, `interviewer_intent`, `question`, and `goal` in the output language.
+- Keep `quote` as an exact quote from candidate text.
 """.strip()
 
 IMPROVE_SYSTEM_PROMPT = """
@@ -138,7 +144,7 @@ def sanitize_json_text(raw_text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeResumeResponse:
+def generate_resume_analysis(job_description: str, resume_text: str, language: str) -> AnalyzeResumeResponse:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
@@ -146,9 +152,11 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     client = OpenAI(api_key=api_key)
 
+    output_language = "Korean" if language == "ko" else "English"
     prompt = (
         ANALYZE_USER_PROMPT_TEMPLATE.replace("{JOB_DESCRIPTION}", job_description[:6000])
         .replace("{RESUME_TEXT}", resume_text[:12000])
+        .replace("{OUTPUT_LANGUAGE}", output_language)
         .strip()
     )
 
@@ -324,10 +332,15 @@ def health() -> dict[str, str]:
 async def analyze_resume(
     job_description: str = Form(...),
     file: UploadFile = File(...),
+    language: str = Form("ko"),
 ) -> AnalyzeResumeResponse:
     normalized_jd = job_description.strip()
     if not normalized_jd:
         raise HTTPException(status_code=400, detail="job_description is required.")
+
+    normalized_language = language.strip().lower() if language else "ko"
+    if normalized_language not in {"ko", "en"}:
+        raise HTTPException(status_code=400, detail="language must be 'ko' or 'en'.")
 
     try:
         final_resume_text = extract_text_from_upload(file)
@@ -339,7 +352,7 @@ async def analyze_resume(
     if not final_resume_text:
         raise HTTPException(status_code=400, detail="Extracted resume text is empty.")
 
-    return generate_resume_analysis(normalized_jd, final_resume_text)
+    return generate_resume_analysis(normalized_jd, final_resume_text, normalized_language)
 
 
 @app.post("/api/improve-question", response_model=ImproveQuestionResponse)
