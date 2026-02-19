@@ -163,18 +163,73 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
         )
         return completion.choices[0].message.content or "{}"
 
+    def normalize_risk_type(value: str) -> str:
+        text = value.strip().lower().replace("-", "_").replace(" ", "_")
+        if text in {"weak_causality", "vague_claim", "exaggeration", "inconsistency", "role_mismatch"}:
+            return text
+        if any(token in text for token in ["cause", "causality"]):
+            return "weak_causality"
+        if any(token in text for token in ["vague", "unclear", "ambiguous", "lack"]):
+            return "vague_claim"
+        if any(token in text for token in ["exaggerat", "overstate", "inflate", "cherry"]):
+            return "exaggeration"
+        if any(token in text for token in ["inconsisten", "contradict", "mismatch", "conflict"]):
+            return "inconsistency"
+        if any(token in text for token in ["role", "fit", "ownership", "scope"]):
+            return "role_mismatch"
+        return "vague_claim"
+
+    def normalize_response(parsed: dict) -> AnalyzeResumeResponse:
+        raw_risks = parsed.get("key_risks") if isinstance(parsed.get("key_risks"), list) else []
+        normalized_risks = []
+        for item in raw_risks:
+            if not isinstance(item, dict):
+                continue
+            risk_type = normalize_risk_type(str(item.get("type", "")))
+            normalized_risks.append(
+                {
+                    "type": risk_type,
+                    "quote": str(item.get("quote", "")).strip(),
+                    "analysis": str(item.get("analysis", "")).strip(),
+                    "interviewer_intent": str(
+                        item.get("interviewer_intent", item.get("intent", ""))
+                    ).strip(),
+                }
+            )
+
+        raw_questions = (
+            parsed.get("pressure_questions") if isinstance(parsed.get("pressure_questions"), list) else []
+        )
+        normalized_questions = []
+        for item in raw_questions:
+            if not isinstance(item, dict):
+                continue
+            normalized_questions.append(
+                {
+                    "question": str(item.get("question", "")).strip(),
+                    "goal": str(item.get("goal", "")).strip(),
+                }
+            )
+
+        return AnalyzeResumeResponse.model_validate(
+            {
+                "key_risks": normalized_risks,
+                "pressure_questions": normalized_questions,
+            }
+        )
+
     try:
         primary_content = request_content(prompt)
         primary_clean = sanitize_json_text(primary_content)
         parsed = json.loads(primary_clean)
-        return AnalyzeResumeResponse.model_validate(parsed)
+        return normalize_response(parsed)
     except json.JSONDecodeError:
         retry_prompt = f"{prompt}\n\nJSON ONLY, no markdown, no extra text."
         try:
             retry_content = request_content(retry_prompt)
             retry_clean = sanitize_json_text(retry_content)
             retry_parsed = json.loads(retry_clean)
-            return AnalyzeResumeResponse.model_validate(retry_parsed)
+            return normalize_response(retry_parsed)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"JSON parsing retry failed: {exc}") from exc
     except ValidationError as exc:
