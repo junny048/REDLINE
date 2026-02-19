@@ -155,7 +155,6 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
     def request_content(user_prompt: str) -> str:
         completion = client.chat.completions.create(
             model=model,
-            temperature=0.2,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},
@@ -202,7 +201,6 @@ def generate_question_improvement(question: str, job_description: str | None) ->
     def request_content(user_prompt: str) -> str:
         completion = client.chat.completions.create(
             model=model,
-            temperature=0.2,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": IMPROVE_SYSTEM_PROMPT},
