@@ -92,7 +92,7 @@ export default function HomePage() {
               <label className="text-sm font-semibold">Job Description</label>
               <textarea
                 className="min-h-24 rounded border border-slate-300 p-2 text-sm"
-                placeholder="Paste JD"
+                placeholder="Paste JD (optional for Question Improver, recommended for better context)."
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
               />
@@ -180,28 +180,54 @@ export default function HomePage() {
               </div>
 
               <div className="rounded border border-blue-200 bg-blue-50 p-3">
-                <h3 className="font-semibold text-blue-900">Interview Question Improver (B-track placeholder)</h3>
+                <h3 className="font-semibold text-blue-900">Interview Question Improver</h3>
+                <p className="mt-1 text-xs text-blue-900/80">
+                  Works independently even without resume upload.
+                </p>
                 <textarea
                   className="mt-2 min-h-20 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder="Interviewer question"
+                  placeholder="Enter interviewer question"
                   value={questionInput}
                   onChange={(e) => setQuestionInput(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={onImprove}
-                  disabled={loadingImprove}
+                  disabled={loadingImprove || questionInput.trim().length === 0}
                   className="mt-2 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {loadingImprove ? "Improving..." : "Improve Question"}
                 </button>
+
                 {improved && (
-                  <div className="mt-3 space-y-1 text-sm">
-                    <p>Generic: {improved.is_generic ? "Yes" : "No"}</p>
-                    <p>Improved: {improved.improved_question}</p>
-                    <p>Trade-off: {improved.follow_ups.trade_off}</p>
-                    <p>Metrics: {improved.follow_ups.metrics}</p>
-                    <p>Personal Contribution: {improved.follow_ups.personal_contribution}</p>
+                  <div className="mt-3 space-y-2 text-sm">
+                    <p>
+                      Generic: <span className="font-semibold">{improved.is_generic ? "Yes" : "No"}</span>
+                    </p>
+                    <div>
+                      <p className="font-semibold">Issues</p>
+                      {improved.issues.length === 0 ? (
+                        <p className="text-slate-700">No major issues detected.</p>
+                      ) : (
+                        <ul className="list-disc pl-5 text-slate-700">
+                          {improved.issues.map((issue, idx) => (
+                            <li key={`${issue}-${idx}`}>{issue}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <p>
+                      <span className="font-semibold">STAR Upgrade:</span> {improved.improved_question}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Follow-up (Trade-off):</span> {improved.follow_ups.trade_off}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Follow-up (Metrics):</span> {improved.follow_ups.metrics}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Follow-up (Contribution):</span> {improved.follow_ups.personal_contribution}
+                    </p>
                   </div>
                 )}
               </div>

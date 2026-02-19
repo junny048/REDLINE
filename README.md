@@ -13,7 +13,7 @@
 
 ## API Contracts
 - `POST /api/analyze-resume` (`multipart/form-data`)
-  - request: `file` (optional, PDF/TXT), `job_description`
+  - request: `file` (optional, PDF/TXT), `job_description`, `resume_text` (optional fallback)
   - response: `key_risks[]`, `pressure_questions[]`
 - `POST /api/improve-question` (`application/json`)
   - request: `question`, `job_description?`
@@ -50,3 +50,9 @@ If needed, set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
 - `/api/analyze-resume` uses exactly one OpenAI call.
 - Supports `PDF` and `TXT` extraction in-memory only.
 - If extraction fails, user can paste `resume_text` fallback and analyze again.
+
+## B-track Notes (`hyeso`)
+- `/api/improve-question` uses exactly one OpenAI call.
+- Works without resume upload.
+- Returns `is_generic`, `issues`, STAR-upgraded question, and 3 follow-ups
+  (`trade_off`, `metrics`, `personal_contribution`).

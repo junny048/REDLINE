@@ -8,7 +8,12 @@ from openai import OpenAI
 from pydantic import ValidationError
 from PyPDF2 import PdfReader
 
-from .schemas import AnalyzeResumeResponse, FollowUps, ImproveQuestionRequest, ImproveQuestionResponse
+from .schemas import (
+    AnalyzeResumeResponse,
+    FollowUps,
+    ImproveQuestionRequest,
+    ImproveQuestionResponse,
+)
 
 app = FastAPI(title="REDLINE API")
 
@@ -91,6 +96,70 @@ Resume Text:
         raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
 
 
+def generate_question_improvement(question: str, job_description: str | None) -> ImproveQuestionResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    client = OpenAI(api_key=api_key)
+
+    prompt = f"""
+You are REDLINE, an interview question verification engine.
+Return strict JSON only. No markdown.
+
+Task:
+1) Judge whether the input question is generic/abstract.
+2) If generic, explain concrete issues.
+3) Rewrite it into a STAR-based, verifiable question.
+4) Generate exactly 3 follow-up questions:
+   - trade_off
+   - metrics
+   - personal_contribution
+
+Output schema (keys must match exactly):
+{{
+  "is_generic": boolean,
+  "issues": [string],
+  "improved_question": string,
+  "follow_ups": {{
+    "trade_off": string,
+    "metrics": string,
+    "personal_contribution": string
+  }}
+}}
+
+Rules:
+- Keep questions concrete and evidence-oriented.
+- If the original question is already specific, set is_generic=false and keep issues concise.
+- improved_question must still be better than original for verification.
+
+Job Description (optional):
+{(job_description or "").strip()[:5000]}
+
+Original Interview Question:
+{question[:3000]}
+""".strip()
+
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You produce strict JSON responses only."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+        return ImproveQuestionResponse.model_validate(parsed)
+    except ValidationError as exc:
+        raise HTTPException(status_code=502, detail=f"Invalid model response schema: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -132,19 +201,5 @@ async def improve_question(payload: ImproveQuestionRequest) -> ImproveQuestionRe
     if not text:
         raise HTTPException(status_code=400, detail="question is required.")
 
-    return ImproveQuestionResponse(
-        is_generic=True,
-        issues=[
-            "Question scope is too broad and weak for verification.",
-            "No measurable criteria to validate impact.",
-        ],
-        improved_question=(
-            "Pick one project from the last 6 months and explain the STAR flow with hard evidence: "
-            "Situation, Task, Actions you personally drove, and quantified Results."
-        ),
-        follow_ups=FollowUps(
-            trade_off="Which alternative did you reject, and why was your choice better?",
-            metrics="What were the two key metrics before and after your intervention?",
-            personal_contribution="Separate your individual contribution from team output.",
-        ),
-    )
+    jd = payload.job_description.strip() if payload.job_description else None
+    return generate_question_improvement(text, jd)
