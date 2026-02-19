@@ -27,6 +27,16 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+Required environment variable:
+```bash
+OPENAI_API_KEY=your_key
+```
+
+Optional:
+```bash
+OPENAI_MODEL=gpt-4.1-mini
+```
+
 ### Frontend
 ```bash
 cd frontend
@@ -35,3 +45,9 @@ npm run dev
 ```
 
 If needed, set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
+
+## B-track Notes (`hyeso`)
+- `/api/improve-question` uses exactly one OpenAI call.
+- Works without resume upload.
+- Returns `is_generic`, `issues`, STAR-upgraded question, and 3 follow-ups
+  (`trade_off`, `metrics`, `personal_contribution`).

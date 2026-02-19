@@ -1,14 +1,18 @@
+import json
+import os
 from io import BytesIO
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
+from pydantic import ValidationError
 from PyPDF2 import PdfReader
 
 from .schemas import (
     AnalyzeResumeResponse,
+    FollowUps,
     ImproveQuestionRequest,
     ImproveQuestionResponse,
-    FollowUps,
     KeyRisk,
     PressureQuestion,
 )
@@ -25,17 +29,81 @@ app.add_middleware(
 
 
 def extract_text_from_upload(file: UploadFile) -> str:
-    if file.content_type == "text/plain" or file.filename.lower().endswith(".txt"):
+    if file.content_type == "text/plain" or (file.filename or "").lower().endswith(".txt"):
         raw = file.file.read()
         return raw.decode("utf-8", errors="ignore").strip()
 
-    if file.content_type == "application/pdf" or file.filename.lower().endswith(".pdf"):
+    if file.content_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf"):
         raw = file.file.read()
         reader = PdfReader(BytesIO(raw))
         pages = [page.extract_text() or "" for page in reader.pages]
         return "\n".join(pages).strip()
 
     raise HTTPException(status_code=400, detail="Only PDF/TXT is supported.")
+
+
+def generate_question_improvement(question: str, job_description: str | None) -> ImproveQuestionResponse:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    client = OpenAI(api_key=api_key)
+
+    prompt = f"""
+You are REDLINE, an interview question verification engine.
+Return strict JSON only. No markdown.
+
+Task:
+1) Judge whether the input question is generic/abstract.
+2) If generic, explain concrete issues.
+3) Rewrite it into a STAR-based, verifiable question.
+4) Generate exactly 3 follow-up questions:
+   - trade_off
+   - metrics
+   - personal_contribution
+
+Output schema (keys must match exactly):
+{{
+  "is_generic": boolean,
+  "issues": [string],
+  "improved_question": string,
+  "follow_ups": {{
+    "trade_off": string,
+    "metrics": string,
+    "personal_contribution": string
+  }}
+}}
+
+Rules:
+- Keep questions concrete and evidence-oriented.
+- If the original question is already specific, set is_generic=false and keep issues concise.
+- improved_question must still be better than original for verification.
+
+Job Description (optional):
+{(job_description or "").strip()[:5000]}
+
+Original Interview Question:
+{question[:3000]}
+""".strip()
+
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            temperature=0.2,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "You produce strict JSON responses only."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        content = completion.choices[0].message.content or "{}"
+        parsed = json.loads(content)
+        return ImproveQuestionResponse.model_validate(parsed)
+    except ValidationError as exc:
+        raise HTTPException(status_code=502, detail=f"Invalid model response schema: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
 
 
 @app.get("/health")
@@ -58,7 +126,7 @@ async def analyze_resume(
     quote = (
         resume_text.split(".")[0].strip()
         if resume_text
-        else "No resume text provided. Only JD-based provisional risk."
+        else "No resume text provided. Placeholder risk generated from limited context."
     )
 
     return AnalyzeResumeResponse(
@@ -66,14 +134,14 @@ async def analyze_resume(
             KeyRisk(
                 type="vague_claim",
                 quote=quote,
-                analysis="Temporary mock response. jun branch will replace with OpenAI-based verification.",
-                interviewer_intent="Ask for concrete facts, scope, and measurable outcomes.",
+                analysis="Placeholder response on hyeso branch. Real analyze logic is implemented on jun branch.",
+                interviewer_intent="Ask for measurable evidence and specific personal ownership.",
             )
         ],
         pressure_questions=[
             PressureQuestion(
-                question="그 성과가 본인 기여라는 근거를 수치와 전후 비교로 설명해 주세요.",
-                goal="개인 기여도와 검증 가능성을 확인",
+                question="Give one hard metric and a before/after comparison that proves this claim.",
+                goal="Verify measurable impact and candidate ownership.",
             )
         ],
     )
@@ -85,19 +153,5 @@ async def improve_question(payload: ImproveQuestionRequest) -> ImproveQuestionRe
     if not text:
         raise HTTPException(status_code=400, detail="question is required.")
 
-    return ImproveQuestionResponse(
-        is_generic=True,
-        issues=[
-            "질문 범위가 넓어 검증 포인트가 흐려짐",
-            "성과를 판단할 수 있는 측정 기준이 없음",
-        ],
-        improved_question=(
-            "최근 6개월 내 본인이 주도한 개선 사례를 하나 선택해, "
-            "상황(S), 과제(T), 행동(A), 결과(R)를 각각 수치와 함께 설명해 주세요."
-        ),
-        follow_ups=FollowUps(
-            trade_off="당시 포기한 대안은 무엇이었고, 왜 그 선택을 했나요?",
-            metrics="개선 전후 핵심 지표 2개를 수치로 제시해 주세요.",
-            personal_contribution="팀 성과가 아닌 본인 단독 기여를 분리해서 설명해 주세요.",
-        ),
-    )
+    jd = payload.job_description.strip() if payload.job_description else None
+    return generate_question_improvement(text, jd)
