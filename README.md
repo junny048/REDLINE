@@ -34,7 +34,7 @@ OPENAI_API_KEY=your_key
 
 Optional:
 ```bash
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-5-mini
 ```
 
 ### Frontend

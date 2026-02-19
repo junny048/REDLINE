@@ -50,7 +50,7 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     client = OpenAI(api_key=api_key)
 
     prompt = f"""
@@ -104,7 +104,7 @@ def generate_question_improvement(question: str, job_description: str | None) ->
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set.")
 
-    model = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
+    model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     client = OpenAI(api_key=api_key)
 
     prompt = f"""
