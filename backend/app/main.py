@@ -20,6 +20,44 @@ load_dotenv()
 
 app = FastAPI(title="REDLINE API")
 
+ANALYZE_SYSTEM_PROMPT = """
+You are NOT an assistant.
+You are a forensic hiring analyst whose job is to challenge candidates,
+not to help them.
+
+Your goal is to find logical gaps, weak causality, exaggerations,
+unsupported claims, and role mismatch risks hidden inside a resume
+or personal statement.
+
+Rules:
+1. Be skeptical by default.
+2. Do NOT summarize unless necessary for reasoning.
+3. Every criticism MUST reference an exact sentence from the text as "quote".
+4. Never judge protected traits.
+5. Output STRICT JSON only. No markdown. No extra text.
+""".strip()
+
+ANALYZE_USER_PROMPT_TEMPLATE = """
+Job Role / JD:
+{JOB_DESCRIPTION}
+
+Candidate Statement:
+{RESUME_TEXT}
+
+Task:
+Identify verification risks and generate aggressive but professional interview questions.
+
+Output STRICT JSON in exactly this schema:
+{
+  "key_risks":[
+    {"type":"...","quote":"...","analysis":"...","interviewer_intent":"..."}
+  ],
+  "pressure_questions":[
+    {"question":"...","goal":"..."}
+  ]
+}
+""".strip()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,50 +91,58 @@ def generate_resume_analysis(job_description: str, resume_text: str) -> AnalyzeR
     model = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     client = OpenAI(api_key=api_key)
 
-    prompt = f"""
-You are REDLINE, a hiring verification engine.
-Return JSON only. No markdown.
+    prompt = (
+        ANALYZE_USER_PROMPT_TEMPLATE.replace("{JOB_DESCRIPTION}", job_description[:6000])
+        .replace("{RESUME_TEXT}", resume_text[:12000])
+        .strip()
+    )
 
-Task:
-1) Detect logical inconsistencies, weak causality, vague or exaggerated claims, and role mismatch risks.
-2) Produce top 5 pressure interview questions for verification.
+    def sanitize_json_text(raw_text: str) -> str:
+        text = raw_text.strip()
+        if not text.startswith("```"):
+            return text
 
-Hard rules:
-- Output keys exactly: key_risks, pressure_questions.
-- key_risks: array of objects with keys exactly:
-  type, quote, analysis, interviewer_intent.
-- type must be one of:
-  weak_causality, vague_claim, exaggeration, inconsistency, role_mismatch
-- quote must be an exact sentence from the resume text when available.
-- pressure_questions must have exactly 5 items.
-- pressure_questions item keys exactly:
-  question, goal
-- Be concrete and verification-focused.
+        lines = text.splitlines()
+        if not lines:
+            return text
 
-Job Description:
-{job_description[:6000]}
+        first = lines[0].strip().lower()
+        if first in ("```json", "```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
 
-Resume Text:
-{resume_text[:12000]}
-""".strip()
-
-    try:
+    def request_content(user_prompt: str) -> str:
         completion = client.chat.completions.create(
             model=model,
             temperature=0.2,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": "You are a strict JSON generator."},
-                {"role": "user", "content": prompt},
+                {"role": "system", "content": ANALYZE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
             ],
         )
-        content = completion.choices[0].message.content or "{}"
-        parsed = json.loads(content)
+        return completion.choices[0].message.content or "{}"
+
+    try:
+        primary_content = request_content(prompt)
+        primary_clean = sanitize_json_text(primary_content)
+        parsed = json.loads(primary_clean)
         return AnalyzeResumeResponse.model_validate(parsed)
+    except json.JSONDecodeError:
+        retry_prompt = f"{prompt}\n\nJSON ONLY, no markdown, no extra text."
+        try:
+            retry_content = request_content(retry_prompt)
+            retry_clean = sanitize_json_text(retry_content)
+            retry_parsed = json.loads(retry_clean)
+            return AnalyzeResumeResponse.model_validate(retry_parsed)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"JSON parsing retry failed: {exc}") from exc
     except ValidationError as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid model response schema: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Invalid model response schema: {exc}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"OpenAI request failed: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {exc}") from exc
 
 
 def generate_question_improvement(question: str, job_description: str | None) -> ImproveQuestionResponse:
