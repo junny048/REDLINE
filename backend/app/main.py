@@ -268,29 +268,21 @@ def health() -> dict[str, str]:
 @app.post("/api/analyze-resume", response_model=AnalyzeResumeResponse)
 async def analyze_resume(
     job_description: str = Form(...),
-    file: UploadFile | None = File(default=None),
-    resume_text: str | None = Form(default=None),
+    file: UploadFile = File(...),
 ) -> AnalyzeResumeResponse:
     normalized_jd = job_description.strip()
     if not normalized_jd:
         raise HTTPException(status_code=400, detail="job_description is required.")
 
-    manual_resume_text = (resume_text or "").strip()
-    extracted_text = ""
-    if file is not None and not manual_resume_text:
-        try:
-            extracted_text = extract_text_from_upload(file)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Extraction failed: {exc}") from exc
+    try:
+        final_resume_text = extract_text_from_upload(file)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Extraction failed: {exc}") from exc
 
-    final_resume_text = manual_resume_text or extracted_text
     if not final_resume_text:
-        raise HTTPException(
-            status_code=400,
-            detail="Provide a resume file (PDF/TXT) or paste resume_text fallback.",
-        )
+        raise HTTPException(status_code=400, detail="Extracted resume text is empty.")
 
     return generate_resume_analysis(normalized_jd, final_resume_text)
 
