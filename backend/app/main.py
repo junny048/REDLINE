@@ -5,6 +5,7 @@ from io import BytesIO
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
+from dotenv import load_dotenv
 from pydantic import ValidationError
 from PyPDF2 import PdfReader
 
@@ -14,6 +15,8 @@ from .schemas import (
     ImproveQuestionRequest,
     ImproveQuestionResponse,
 )
+
+load_dotenv()
 
 app = FastAPI(title="REDLINE API")
 
