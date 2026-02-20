@@ -53,6 +53,21 @@ If needed, set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
   (example: `https://your-backend.example.com`), otherwise API calls fail in production.
 - Set repository secret `NEXT_PUBLIC_TOSS_CLIENT_KEY` for payment flow in production.
 
+## Render Deploy (Backend)
+1. Go to Render and create a new Blueprint from this repository (`render.yaml`).
+2. Confirm service:
+   - Name: `redline-backend`
+   - Root Directory: `backend`
+   - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+3. Set environment variables on Render:
+   - `OPENAI_API_KEY` (required)
+   - `OPENAI_MODEL` (optional, default `gpt-5-mini`)
+   - `REDLINE_PAYMENT_AMOUNT` (optional, default `2000`)
+   - `CORS_ALLOW_ORIGINS` (comma-separated origins, e.g. `https://junny048.github.io`)
+4. After backend deploy succeeds, copy backend URL and set GitHub repository variable:
+   - `NEXT_PUBLIC_API_BASE_URL=https://<your-render-service>.onrender.com`
+5. Push to `main` again (or re-run Pages workflow) to rebuild frontend with new API URL.
+
 ## A-track Notes (`jun`)
 - `/api/analyze-resume` uses exactly one OpenAI call.
 - Supports `PDF` and `TXT` extraction in-memory only.

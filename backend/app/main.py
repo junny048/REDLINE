@@ -21,6 +21,15 @@ load_dotenv()
 
 app = FastAPI(title="REDLINE API")
 
+
+def parse_cors_origins() -> tuple[list[str], bool]:
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    if not origins:
+        origins = ["*"]
+    allow_credentials = "*" not in origins
+    return origins, allow_credentials
+
 ANALYZE_SYSTEM_PROMPT = """
 You are NOT an assistant.
 You are a forensic hiring analyst whose job is to challenge candidates,
@@ -103,10 +112,12 @@ Important:
 - If generic, issues must have 2~4 items, followups must have exactly 3 items.
 """.strip()
 
+cors_allow_origins, cors_allow_credentials = parse_cors_origins()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
