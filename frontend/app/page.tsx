@@ -1,8 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { analyzeResume, improveQuestion } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { FakeDoor } from "@/components/FakeDoor";
+import { LockedResults } from "@/components/LockedResults";
+import { Paywall } from "@/components/Paywall";
+import { track } from "@/lib/analytics";
+import { analyzeResume, improveQuestion, submitFakeDoorLead } from "@/lib/api";
+import { requestTossPayment } from "@/lib/toss";
 import { AnalyzeResumeResponse, ImproveQuestionResponse } from "@/lib/types";
+
+const PRICE = 2000;
+const STORAGE_ANALYSIS = "redline.analysis";
+const STORAGE_UNLOCKED = "redline.unlocked";
 
 const EMPTY_ANALYSIS: AnalyzeResumeResponse = {
   key_risks: [],
@@ -11,78 +21,12 @@ const EMPTY_ANALYSIS: AnalyzeResumeResponse = {
 
 type Lang = "ko" | "en";
 
-const COPY = {
-  ko: {
-    title: "REDLINE MVP",
-    jdLabel: "Job Description",
-    jdPlaceholder: "채용 JD를 붙여넣어 주세요.",
-    resumeLabel: "이력서 파일 (PDF/TXT)",
-    analyze: "Analyze",
-    analyzing: "분석 중...",
-    leftTitle: "LEFT: 이력서 원문",
-    noResume: "아직 업로드된 이력서가 없습니다.",
-    pdfUploaded: "PDF 업로드 완료. 텍스트 추출은 Analyze 시 백엔드에서 수행됩니다.",
-    rightTitle: "RIGHT: AI 검증 리포트",
-    risksTitle: "논리 리스크 / 의심 주장",
-    noAnalysis: "아직 분석 결과가 없습니다.",
-    quote: "인용",
-    why: "분석",
-    intent: "검증 의도",
-    pressureTitle: "압박 면접 질문",
-    noQuestions: "아직 질문이 없습니다.",
-    improverTitle: "면접 질문 개선기",
-    improverHint: "자소서 업로드 없이도 단독으로 동작합니다.",
-    improverPlaceholder: "면접관 질문을 입력하세요",
-    improve: "질문 개선",
-    improving: "개선 중...",
-    generic: "Generic 여부",
-    yes: "예",
-    no: "아니오",
-    issues: "문제점",
-    noIssues: "큰 문제점이 감지되지 않았습니다.",
-    star: "STAR 개선 질문",
-    tradeoff: "추궁 (Trade-off)",
-    metrics: "추궁 (Metrics)",
-    contribution: "추궁 (Contribution)",
-    langKo: "한국어",
-    langEn: "English"
-  },
-  en: {
-    title: "REDLINE MVP",
-    jdLabel: "Job Description",
-    jdPlaceholder: "Paste job description.",
-    resumeLabel: "Resume File (PDF/TXT)",
-    analyze: "Analyze",
-    analyzing: "Analyzing...",
-    leftTitle: "LEFT: Resume Raw Text",
-    noResume: "No resume uploaded yet.",
-    pdfUploaded: "PDF uploaded. Extraction runs on backend after Analyze.",
-    rightTitle: "RIGHT: AI Verification Report",
-    risksTitle: "Logical Risks / Suspicious Claims",
-    noAnalysis: "No analysis result yet.",
-    quote: "Quote",
-    why: "Why",
-    intent: "Intent",
-    pressureTitle: "Pressure Interview Questions",
-    noQuestions: "No questions yet.",
-    improverTitle: "Interview Question Improver",
-    improverHint: "Works independently even without resume upload.",
-    improverPlaceholder: "Enter interviewer question",
-    improve: "Improve Question",
-    improving: "Improving...",
-    generic: "Generic",
-    yes: "Yes",
-    no: "No",
-    issues: "Issues",
-    noIssues: "No major issues detected.",
-    star: "STAR Upgrade",
-    tradeoff: "Follow-up (Trade-off)",
-    metrics: "Follow-up (Metrics)",
-    contribution: "Follow-up (Contribution)",
-    langKo: "Korean",
-    langEn: "English"
+function makeOrderId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
   }
-} as const;
+  return `redline-${Date.now()}`;
+}
 
 export default function HomePage() {
   const [lang, setLang] = useState<Lang>("ko");
@@ -94,25 +38,60 @@ export default function HomePage() {
   const [improved, setImproved] = useState<ImproveQuestionResponse | null>(null);
   const [loadingAnalyze, setLoadingAnalyze] = useState(false);
   const [loadingImprove, setLoadingImprove] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
 
-  const t = COPY[lang];
-  const risks = useMemo(() => analysis.key_risks, [analysis.key_risks]);
+  const hasAnalysis = useMemo(
+    () => analysis.key_risks.length > 0 || analysis.pressure_questions.length > 0,
+    [analysis]
+  );
+  const locked = hasAnalysis && !isUnlocked;
+
+  useEffect(() => {
+    const storedAnalysis = sessionStorage.getItem(STORAGE_ANALYSIS);
+    const storedUnlocked = sessionStorage.getItem(STORAGE_UNLOCKED);
+    if (storedAnalysis) {
+      try {
+        setAnalysis(JSON.parse(storedAnalysis) as AnalyzeResumeResponse);
+      } catch {
+        sessionStorage.removeItem(STORAGE_ANALYSIS);
+      }
+    }
+    if (storedUnlocked === "1") {
+      setIsUnlocked(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (locked) {
+      track("paywall_viewed", {
+        key_risks_count: analysis.key_risks.length,
+        pressure_questions_count: analysis.pressure_questions.length
+      });
+    }
+  }, [analysis.key_risks.length, analysis.pressure_questions.length, locked]);
 
   async function onAnalyze() {
+    if (!file) {
+      return;
+    }
+
     setError(null);
     setLoadingAnalyze(true);
+    setIsUnlocked(false);
+    sessionStorage.setItem(STORAGE_UNLOCKED, "0");
 
     try {
       const formData = new FormData();
       formData.append("job_description", jobDescription);
       formData.append("language", lang);
-      if (file) {
-        formData.append("file", file);
-      }
+      formData.append("file", file);
 
       const result = await analyzeResume(formData);
       setAnalysis(result);
+      sessionStorage.setItem(STORAGE_ANALYSIS, JSON.stringify(result));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -137,28 +116,54 @@ export default function HomePage() {
     }
   }
 
+  async function onPay() {
+    setError(null);
+    setIsPaying(true);
+    track("pay_clicked", { price: PRICE });
+
+    try {
+      await requestTossPayment({
+        amount: PRICE,
+        orderId: makeOrderId()
+      });
+    } catch (e) {
+      track("payment_fail_or_cancel", {
+        reason: e instanceof Error ? e.message : "unknown"
+      });
+      setError("결제가 취소/실패했습니다");
+    } finally {
+      setIsPaying(false);
+    }
+  }
+
   async function onFileChange(next: File | null) {
     setFile(next);
-
     if (!next) {
       setResumeTextPreview("");
       return;
     }
-
     if (next.type === "text/plain") {
       const text = await next.text();
       setResumeTextPreview(text);
       return;
     }
-
-    setResumeTextPreview(t.pdfUploaded);
+    setResumeTextPreview("PDF uploaded. Extraction runs on backend after Analyze.");
   }
+
+  async function onFakeDoorSubmit(email: string) {
+    track("fakedoor_email_submitted", { email: email || null });
+    await submitFakeDoorLead({ email: email || undefined });
+  }
+
+  const paymentNotice = searchParams.get("payment");
+  const paymentFailCode = searchParams.get("code");
+  const paymentFailMessage = searchParams.get("message");
 
   return (
     <main className="min-h-screen p-6 md:p-10">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">{t.title}</h1>
+          <h1 className="text-2xl font-bold">REDLINE MVP</h1>
           <div className="flex items-center gap-2 rounded border border-slate-300 bg-white p-1 text-xs">
             <button
               type="button"
@@ -177,25 +182,40 @@ export default function HomePage() {
           </div>
         </div>
 
+        {paymentNotice === "success" && (
+          <p className="rounded bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">Unlocked ✅</p>
+        )}
+        {paymentNotice === "fail" && (
+          <div className="rounded bg-red-100 px-3 py-2 text-sm text-red-800">
+            <p className="font-semibold">결제가 취소/실패했습니다</p>
+            {paymentFailCode && (
+              <p className="mt-1">
+                code: <span className="font-mono">{paymentFailCode}</span>
+              </p>
+            )}
+            {paymentFailMessage && <p className="mt-1">{paymentFailMessage}</p>}
+          </div>
+        )}
+
         <div className="rounded-xl bg-panel p-4 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold">{t.jdLabel}</label>
+              <label className="text-sm font-semibold">Job Description</label>
               <textarea
                 className="min-h-24 rounded border border-slate-300 p-2 text-sm"
-                placeholder={t.jdPlaceholder}
+                placeholder={lang === "ko" ? "채용 JD를 붙여넣어 주세요." : "Paste job description."}
                 value={jobDescription}
-                onChange={(e) => setJobDescription(e.target.value)}
+                onChange={(event) => setJobDescription(event.target.value)}
               />
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold">{t.resumeLabel}</label>
+              <label className="text-sm font-semibold">Resume File (PDF/TXT)</label>
               <input
                 type="file"
                 accept=".pdf,.txt"
                 className="rounded border border-slate-300 p-2 text-sm"
-                onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
+                onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
               />
               <button
                 type="button"
@@ -203,7 +223,7 @@ export default function HomePage() {
                 disabled={loadingAnalyze || !file || !jobDescription.trim()}
                 className="rounded bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {loadingAnalyze ? t.analyzing : t.analyze}
+                {loadingAnalyze ? "Analyzing..." : "Analyze"}
               </button>
             </div>
           </div>
@@ -213,56 +233,66 @@ export default function HomePage() {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <section className="rounded-xl bg-panel p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold">{t.leftTitle}</h2>
+            <h2 className="mb-3 text-lg font-semibold">LEFT: Resume Raw Text</h2>
             <pre className="max-h-[650px] overflow-auto whitespace-pre-wrap rounded border border-slate-200 bg-slate-50 p-3 text-sm">
-              {resumeTextPreview || t.noResume}
+              {resumeTextPreview || "No resume uploaded yet."}
             </pre>
           </section>
 
           <section className="rounded-xl bg-panel p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold">{t.rightTitle}</h2>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="text-lg font-semibold">RIGHT: AI Verification Report</h2>
+              {isUnlocked && <span className="rounded bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Unlocked</span>}
+            </div>
             <div className="space-y-4">
               <div>
-                <h3 className="font-semibold text-danger">{t.risksTitle}</h3>
-                {risks.length === 0 ? (
-                  <p className="text-sm text-slate-500">{t.noAnalysis}</p>
-                ) : (
-                  <ul className="mt-2 space-y-2">
-                    {risks.map((risk, index) => (
-                      <li key={`${risk.type}-${index}`} className="rounded border border-slate-200 p-2 text-sm">
-                        <p className="font-semibold">{risk.type}</p>
-                        <p className="text-slate-700">{t.quote}: {risk.quote}</p>
-                        <p className="text-slate-700">{t.why}: {risk.analysis}</p>
-                        <p className="text-slate-700">{t.intent}: {risk.interviewer_intent}</p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <h3 className="font-semibold text-danger">Logical Risks / Suspicious Claims</h3>
+                <LockedResults
+                  items={analysis.key_risks}
+                  locked={locked}
+                  emptyMessage="No analysis result yet."
+                  renderItem={(risk, index) => (
+                    <div key={`${risk.type}-${index}`} className="rounded border border-slate-200 p-2 text-sm">
+                      <p className="font-semibold">{risk.type}</p>
+                      <p className="text-slate-700">Quote: {risk.quote}</p>
+                      <p className="text-slate-700">Why: {risk.analysis}</p>
+                      <p className="text-slate-700">Intent: {risk.interviewer_intent}</p>
+                    </div>
+                  )}
+                />
               </div>
 
               <div>
-                <h3 className="font-semibold text-danger">{t.pressureTitle}</h3>
-                {analysis.pressure_questions.length === 0 ? (
-                  <p className="text-sm text-slate-500">{t.noQuestions}</p>
-                ) : (
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-                    {analysis.pressure_questions.map((item, index) => (
-                      <li key={`${item.question}-${index}`}>
-                        {item.question} ({item.goal})
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <h3 className="font-semibold text-danger">Pressure Interview Questions</h3>
+                <LockedResults
+                  items={analysis.pressure_questions}
+                  locked={locked}
+                  emptyMessage="No questions yet."
+                  renderItem={(item, index) => (
+                    <div key={`${item.question}-${index}`} className="rounded border border-slate-200 p-2 text-sm">
+                      {item.question} ({item.goal})
+                    </div>
+                  )}
+                />
               </div>
 
+              <Paywall price={PRICE} locked={locked} onPay={onPay} isPaying={isPaying} />
+
+              {isUnlocked && (
+                <FakeDoor
+                  onClickBeta={() => track("fakedoor_clicked")}
+                  onSubmitEmail={onFakeDoorSubmit}
+                />
+              )}
+
               <div className="rounded border border-blue-200 bg-blue-50 p-3">
-                <h3 className="font-semibold text-blue-900">{t.improverTitle}</h3>
-                <p className="mt-1 text-xs text-blue-900/80">{t.improverHint}</p>
+                <h3 className="font-semibold text-blue-900">Interview Question Improver</h3>
+                <p className="mt-1 text-xs text-blue-900/80">Works independently even without resume upload.</p>
                 <textarea
                   className="mt-2 min-h-20 w-full rounded border border-slate-300 p-2 text-sm"
-                  placeholder={t.improverPlaceholder}
+                  placeholder="Enter interviewer question"
                   value={questionInput}
-                  onChange={(e) => setQuestionInput(e.target.value)}
+                  onChange={(event) => setQuestionInput(event.target.value)}
                 />
                 <button
                   type="button"
@@ -270,18 +300,18 @@ export default function HomePage() {
                   disabled={loadingImprove || questionInput.trim().length === 0}
                   className="mt-2 rounded bg-blue-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  {loadingImprove ? t.improving : t.improve}
+                  {loadingImprove ? "Improving..." : "Improve Question"}
                 </button>
 
                 {improved && (
                   <div className="mt-3 space-y-2 text-sm">
                     <p>
-                      {t.generic}: <span className="font-semibold">{improved.is_generic ? t.yes : t.no}</span>
+                      Generic: <span className="font-semibold">{improved.is_generic ? "Yes" : "No"}</span>
                     </p>
                     <div>
-                      <p className="font-semibold">{t.issues}</p>
+                      <p className="font-semibold">Issues</p>
                       {improved.issues.length === 0 ? (
-                        <p className="text-slate-700">{t.noIssues}</p>
+                        <p className="text-slate-700">No major issues detected.</p>
                       ) : (
                         <ul className="list-disc pl-5 text-slate-700">
                           {improved.issues.map((issue, idx) => (
@@ -291,16 +321,16 @@ export default function HomePage() {
                       )}
                     </div>
                     <p>
-                      <span className="font-semibold">{t.star}:</span> {improved.improved_question}
+                      <span className="font-semibold">STAR Upgrade:</span> {improved.improved_question}
                     </p>
                     <p>
-                      <span className="font-semibold">{t.tradeoff}:</span> {improved.follow_ups.trade_off}
+                      <span className="font-semibold">Follow-up (Trade-off):</span> {improved.follow_ups.trade_off}
                     </p>
                     <p>
-                      <span className="font-semibold">{t.metrics}:</span> {improved.follow_ups.metrics}
+                      <span className="font-semibold">Follow-up (Metrics):</span> {improved.follow_ups.metrics}
                     </p>
                     <p>
-                      <span className="font-semibold">{t.contribution}:</span> {improved.follow_ups.personal_contribution}
+                      <span className="font-semibold">Follow-up (Contribution):</span> {improved.follow_ups.personal_contribution}
                     </p>
                   </div>
                 )}

@@ -43,3 +43,39 @@ export async function improveQuestion(payload: ImproveQuestionRequest): Promise<
 
   return response.json();
 }
+
+export async function confirmPayment(payload: {
+  paymentKey: string;
+  orderId: string;
+  amount: number;
+}): Promise<{ status: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/payment/confirm`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    await parseError(response, "Failed to confirm payment.");
+  }
+
+  return response.json();
+}
+
+export async function submitFakeDoorLead(payload: { email?: string }): Promise<{ status: string }> {
+  const response = await fetch(`${API_BASE_URL}/api/fakedoor/lead`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    await parseError(response, "Failed to submit fake door lead.");
+  }
+
+  return response.json();
+}

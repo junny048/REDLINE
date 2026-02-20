@@ -45,3 +45,17 @@ class ImproveQuestionResponse(BaseModel):
     issues: List[str]
     improved_question: str
     follow_ups: FollowUps
+
+
+class PaymentConfirmRequest(BaseModel):
+    paymentKey: str
+    orderId: str
+    amount: int
+
+
+class PaymentConfirmResponse(BaseModel):
+    status: str
+
+
+class FakeDoorLeadRequest(BaseModel):
+    email: str | None = None
