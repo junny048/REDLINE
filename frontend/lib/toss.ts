@@ -1,4 +1,4 @@
-declare global {
+﻿declare global {
   interface Window {
     TossPayments?: (clientKey: string) => {
       requestPayment: (
@@ -43,7 +43,11 @@ async function loadTossScript(): Promise<void> {
 
 export async function requestTossPayment(args: { amount: number; orderId: string }): Promise<void> {
   const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
+
   if (!clientKey) {
     throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY is not set.");
   }
@@ -59,7 +63,7 @@ export async function requestTossPayment(args: { amount: number; orderId: string
     orderId: args.orderId,
     orderName: "REDLINE Resume Verification",
     successUrl: `${appUrl}/payment/success`,
-    failUrl: `${appUrl}/payment/fail`,
+    failUrl: `${appUrl}/payment/fail`
   });
 }
 

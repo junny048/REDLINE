@@ -13,6 +13,10 @@ import { AnalyzeResumeResponse, ImproveQuestionResponse } from "@/lib/types";
 const PRICE = 2000;
 const STORAGE_ANALYSIS = "redline.analysis";
 const STORAGE_UNLOCKED = "redline.unlocked";
+const STORAGE_LANG = "redline.lang";
+const STORAGE_JOB_DESCRIPTION = "redline.jobDescription";
+const STORAGE_RESUME_PREVIEW = "redline.resumePreview";
+const STORAGE_FILE_NAME = "redline.fileName";
 
 const EMPTY_ANALYSIS: AnalyzeResumeResponse = {
   key_risks: [],
@@ -32,6 +36,7 @@ function HomePageContent() {
   const [lang, setLang] = useState<Lang>("ko");
   const [jobDescription, setJobDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState("");
   const [resumeTextPreview, setResumeTextPreview] = useState("");
   const [analysis, setAnalysis] = useState<AnalyzeResumeResponse>(EMPTY_ANALYSIS);
   const [questionInput, setQuestionInput] = useState("");
@@ -134,6 +139,24 @@ function HomePageContent() {
   useEffect(() => {
     const storedAnalysis = sessionStorage.getItem(STORAGE_ANALYSIS);
     const storedUnlocked = sessionStorage.getItem(STORAGE_UNLOCKED);
+    const storedLang = sessionStorage.getItem(STORAGE_LANG);
+    const storedJobDescription = sessionStorage.getItem(STORAGE_JOB_DESCRIPTION);
+    const storedResumePreview = sessionStorage.getItem(STORAGE_RESUME_PREVIEW);
+    const storedFileName = sessionStorage.getItem(STORAGE_FILE_NAME);
+
+    if (storedLang === "ko" || storedLang === "en") {
+      setLang(storedLang);
+    }
+    if (storedJobDescription) {
+      setJobDescription(storedJobDescription);
+    }
+    if (storedResumePreview) {
+      setResumeTextPreview(storedResumePreview);
+    }
+    if (storedFileName) {
+      setSelectedFileName(storedFileName);
+    }
+
     if (storedAnalysis) {
       try {
         setAnalysis(JSON.parse(storedAnalysis) as AnalyzeResumeResponse);
@@ -145,6 +168,26 @@ function HomePageContent() {
       setIsUnlocked(true);
     }
   }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_LANG, lang);
+  }, [lang]);
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_JOB_DESCRIPTION, jobDescription);
+  }, [jobDescription]);
+
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_RESUME_PREVIEW, resumeTextPreview);
+  }, [resumeTextPreview]);
+
+  useEffect(() => {
+    if (selectedFileName) {
+      sessionStorage.setItem(STORAGE_FILE_NAME, selectedFileName);
+      return;
+    }
+    sessionStorage.removeItem(STORAGE_FILE_NAME);
+  }, [selectedFileName]);
 
   useEffect(() => {
     if (locked) {
@@ -220,6 +263,7 @@ function HomePageContent() {
 
   async function onFileChange(next: File | null) {
     setFile(next);
+    setSelectedFileName(next?.name ?? "");
     if (!next) {
       setResumeTextPreview("");
       return;
@@ -308,7 +352,7 @@ function HomePageContent() {
                 >
                   {ui.chooseFile}
                 </button>
-                <span className="truncate text-slate-700">{file ? file.name : ui.noFile}</span>
+                <span className="truncate text-slate-700">{selectedFileName || ui.noFile}</span>
               </div>
               <button
                 type="button"
