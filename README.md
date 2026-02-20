@@ -46,6 +46,13 @@ npm run dev
 
 If needed, set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`.
 
+## GitHub Pages Deploy
+- `main` branch push triggers `.github/workflows/deploy-pages.yml`.
+- Target URL format: `https://<github-username>.github.io/<repo-name>/`
+- Set repository variable `NEXT_PUBLIC_API_BASE_URL` to your deployed backend URL
+  (example: `https://your-backend.example.com`), otherwise API calls fail in production.
+- Set repository secret `NEXT_PUBLIC_TOSS_CLIENT_KEY` for payment flow in production.
+
 ## A-track Notes (`jun`)
 - `/api/analyze-resume` uses exactly one OpenAI call.
 - Supports `PDF` and `TXT` extraction in-memory only.

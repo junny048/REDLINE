@@ -17,6 +17,7 @@
 }
 
 let scriptLoadingPromise: Promise<void> | null = null;
+const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").replace(/\/$/, "");
 
 async function loadTossScript(): Promise<void> {
   if (typeof window === "undefined") {
@@ -43,10 +44,11 @@ async function loadTossScript(): Promise<void> {
 
 export async function requestTossPayment(args: { amount: number; orderId: string }): Promise<void> {
   const clientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
-  const appUrl =
+  const origin =
     typeof window !== "undefined"
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000");
+  const buildUrl = (path: string) => `${origin}${BASE_PATH}${path}`;
 
   if (!clientKey) {
     throw new Error("NEXT_PUBLIC_TOSS_CLIENT_KEY is not set.");
@@ -62,8 +64,8 @@ export async function requestTossPayment(args: { amount: number; orderId: string
     amount: args.amount,
     orderId: args.orderId,
     orderName: "REDLINE Resume Verification",
-    successUrl: `${appUrl}/payment/success`,
-    failUrl: `${appUrl}/payment/fail`
+    successUrl: buildUrl("/payment/success"),
+    failUrl: buildUrl("/payment/fail")
   });
 }
 
