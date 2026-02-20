@@ -130,7 +130,7 @@ function HomePageContent() {
       track("payment_fail_or_cancel", {
         reason: e instanceof Error ? e.message : "unknown"
       });
-      setError("결제가 취소/실패했습니다");
+      setError(lang === "ko" ? "결제가 취소/실패했습니다" : "Payment was canceled or failed.");
     } finally {
       setIsPaying(false);
     }
@@ -158,6 +158,13 @@ function HomePageContent() {
   const paymentNotice = searchParams.get("payment");
   const paymentFailCode = searchParams.get("code");
   const paymentFailMessage = searchParams.get("message");
+  const paymentSuccessLabel = lang === "ko" ? "잠금이 해제되었습니다" : "Unlocked";
+  const paymentFailLabel = lang === "ko" ? "결제가 취소/실패했습니다" : "Payment was canceled or failed.";
+  const jobDescriptionLabel = lang === "ko" ? "채용 공고" : "Job Description";
+  const jobDescriptionPlaceholder = lang === "ko" ? "채용 JD를 붙여넣어 주세요." : "Paste job description.";
+  const analyzeLabel = loadingAnalyze ? "Analyzing..." : lang === "ko" ? "분석하기" : "Analyze";
+  const lockedMessage =
+    lang === "ko" ? "잠긴 결과입니다. 결제 후 전체를 볼 수 있습니다." : "Locked results. Complete payment to view all.";
 
   return (
     <main className="min-h-screen p-6 md:p-10">
@@ -183,11 +190,11 @@ function HomePageContent() {
         </div>
 
         {paymentNotice === "success" && (
-          <p className="rounded bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">Unlocked ✅</p>
+          <p className="rounded bg-emerald-100 px-3 py-2 text-sm font-semibold text-emerald-800">{paymentSuccessLabel}</p>
         )}
         {paymentNotice === "fail" && (
           <div className="rounded bg-red-100 px-3 py-2 text-sm text-red-800">
-            <p className="font-semibold">결제가 취소/실패했습니다</p>
+            <p className="font-semibold">{paymentFailLabel}</p>
             {paymentFailCode && (
               <p className="mt-1">
                 code: <span className="font-mono">{paymentFailCode}</span>
@@ -200,10 +207,10 @@ function HomePageContent() {
         <div className="rounded-xl bg-panel p-4 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold">Job Description</label>
+              <label className="text-sm font-semibold">{jobDescriptionLabel}</label>
               <textarea
                 className="min-h-24 rounded border border-slate-300 p-2 text-sm"
-                placeholder={lang === "ko" ? "채용 JD를 붙여넣어 주세요." : "Paste job description."}
+                placeholder={jobDescriptionPlaceholder}
                 value={jobDescription}
                 onChange={(event) => setJobDescription(event.target.value)}
               />
@@ -223,7 +230,7 @@ function HomePageContent() {
                 disabled={loadingAnalyze || !file || !jobDescription.trim()}
                 className="rounded bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {loadingAnalyze ? "Analyzing..." : "Analyze"}
+                {analyzeLabel}
               </button>
             </div>
           </div>
@@ -250,6 +257,7 @@ function HomePageContent() {
                 <LockedResults
                   items={analysis.key_risks}
                   locked={locked}
+                  lockedMessage={lockedMessage}
                   emptyMessage="No analysis result yet."
                   renderItem={(risk, index) => (
                     <div key={`${risk.type}-${index}`} className="rounded border border-slate-200 p-2 text-sm">
@@ -267,6 +275,7 @@ function HomePageContent() {
                 <LockedResults
                   items={analysis.pressure_questions}
                   locked={locked}
+                  lockedMessage={lockedMessage}
                   emptyMessage="No questions yet."
                   renderItem={(item, index) => (
                     <div key={`${item.question}-${index}`} className="rounded border border-slate-200 p-2 text-sm">
@@ -276,10 +285,11 @@ function HomePageContent() {
                 />
               </div>
 
-              <Paywall price={PRICE} locked={locked} onPay={onPay} isPaying={isPaying} />
+              <Paywall price={PRICE} locked={locked} onPay={onPay} isPaying={isPaying} lang={lang} />
 
               {isUnlocked && (
                 <FakeDoor
+                  lang={lang}
                   onClickBeta={() => track("fakedoor_clicked")}
                   onSubmitEmail={onFakeDoorSubmit}
                 />

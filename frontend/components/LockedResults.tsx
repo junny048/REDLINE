@@ -1,13 +1,14 @@
-import { ReactNode } from "react";
+﻿import { ReactNode } from "react";
 
 type LockedResultsProps<T> = {
   items: T[];
   locked: boolean;
   renderItem: (item: T, index: number) => ReactNode;
   emptyMessage: string;
+  lockedMessage?: string;
 };
 
-export function LockedResults<T>({ items, locked, renderItem, emptyMessage }: LockedResultsProps<T>) {
+export function LockedResults<T>({ items, locked, renderItem, emptyMessage, lockedMessage }: LockedResultsProps<T>) {
   if (items.length === 0) {
     return <p className="text-sm text-slate-500">{emptyMessage}</p>;
   }
@@ -31,7 +32,7 @@ export function LockedResults<T>({ items, locked, renderItem, emptyMessage }: Lo
               {renderItem(item, idx + 1)}
             </div>
           ))}
-          <p className="text-xs font-semibold text-slate-500">🔒 잠긴 결과입니다. 결제 후 전체를 볼 수 있습니다.</p>
+          <p className="text-xs font-semibold text-slate-500">{lockedMessage ?? "Locked results. Unlock to view all."}</p>
         </div>
       )}
     </div>
