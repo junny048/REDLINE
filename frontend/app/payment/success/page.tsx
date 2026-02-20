@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { track } from "@/lib/analytics";
 import { confirmPayment } from "@/lib/api";
@@ -31,7 +31,7 @@ function normalizeError(error: unknown): { code: string; message: string } {
   };
 }
 
-export default function PaymentSuccessPage() {
+function PaymentSuccessPageContent() {
   const router = useRouter();
   const params = useSearchParams();
   const [message, setMessage] = useState("Processing payment confirmation...");
@@ -79,5 +79,19 @@ export default function PaymentSuccessPage() {
     <main className="mx-auto flex min-h-screen max-w-xl items-center justify-center p-6">
       <p className="text-center text-sm text-slate-700">{message}</p>
     </main>
+  );
+}
+
+export default function PaymentSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto flex min-h-screen max-w-xl items-center justify-center p-6">
+          <p className="text-center text-sm text-slate-700">Processing payment confirmation...</p>
+        </main>
+      }
+    >
+      <PaymentSuccessPageContent />
+    </Suspense>
   );
 }

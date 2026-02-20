@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FakeDoor } from "@/components/FakeDoor";
 import { LockedResults } from "@/components/LockedResults";
@@ -28,7 +28,7 @@ function makeOrderId(): string {
   return `redline-${Date.now()}`;
 }
 
-export default function HomePage() {
+function HomePageContent() {
   const [lang, setLang] = useState<Lang>("ko");
   const [jobDescription, setJobDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -340,5 +340,13 @@ export default function HomePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen p-6 md:p-10">Loading...</main>}>
+      <HomePageContent />
+    </Suspense>
   );
 }

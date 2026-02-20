@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { track } from "@/lib/analytics";
 
-export default function PaymentFailPage() {
+function PaymentFailPageContent() {
   const params = useSearchParams();
   const code = params.get("code");
   const message = params.get("message");
@@ -33,5 +33,19 @@ export default function PaymentFailPage() {
         Go back
       </Link>
     </main>
+  );
+}
+
+export default function PaymentFailPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto flex min-h-screen max-w-xl items-center justify-center p-6">
+          <p className="text-center text-sm text-slate-700">Loading payment result...</p>
+        </main>
+      }
+    >
+      <PaymentFailPageContent />
+    </Suspense>
   );
 }
