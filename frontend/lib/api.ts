@@ -1,6 +1,11 @@
 import { AnalyzeResumeResponse, ImproveQuestionRequest, ImproveQuestionResponse } from "@/lib/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const DEFAULT_PROD_API_BASE_URL = "https://redline-hbvz.onrender.com";
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  (typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? "http://localhost:8000"
+    : DEFAULT_PROD_API_BASE_URL);
 
 async function parseError(response: Response, fallbackMessage: string): Promise<never> {
   let message = fallbackMessage;
