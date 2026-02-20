@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "tosspayments": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@tosspayments/integration-guide-mcp@latest"]
+    }
+  },
+  "inputs": []
+}

@@ -11,10 +11,11 @@ from PyPDF2 import PdfReader
 
 from .schemas import (
     AnalyzeResumeResponse,
-    FollowUps,
     ImproveQuestionRequest,
     ImproveQuestionResponse,
 )
+from .routers.payment import router as payment_router
+from .routers.fakedoor import router as fakedoor_router
 
 load_dotenv()
 
@@ -109,6 +110,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(payment_router)
+app.include_router(fakedoor_router)
 
 
 def extract_text_from_upload(file: UploadFile) -> str:
